@@ -1,58 +1,81 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
-	"sync/atomic"
+	"strings"
+	"sync"
 )
 
-var money atomic.Int64
+var money int = 0
 
-var bank atomic.Int64
+var bank int = 0
+
+var mtx sync.RWMutex
 
 func payHandler(w http.ResponseWriter, r *http.Request) {
-
 	httpRequestBody, err := io.ReadAll(r.Body)
-	if err != nil {
 
-		fmt.Println("Faild to read http request: ", err)
+	if err != nil {
+		msg := "Faild to read http request: " + err.Error()
+		fmt.Println(msg)
+		w.Write([]byte(msg))
 		return
 	}
 
 	httpRequestBodyString := string(httpRequestBody)
 
 	paymentAmount, err := strconv.Atoi(httpRequestBodyString)
-	if err != nil {
 
+	if err != nil {
+		msg := "Failed to convert request: " + err.Error()
 		fmt.Println(err)
 
-	}
-
-	if money.Load()-int64(paymentAmount) >= 0 {
-		money.Add(int64(-paymentAmount))
-		fmt.Println("Оплата прошла успешно: ", money.Load())
-	} else {
-
-		fmt.Println("Не хватает средств для оплаты!!")
+		w.Write([]byte(msg))
 		return
 	}
 
+	mtx.Lock()
+	if money-paymentAmount >= 0 {
+
+		money = money - paymentAmount
+
+		mtx.Unlock()
+
+		msg := "Pay has been approved!"
+		fmt.Println(msg)
+		w.Write([]byte(msg))
+		return
+	}
+
+	mtx.Unlock()
+
+	msg := "Not enough funds to pay!!"
+	fmt.Println(msg)
+	w.Write([]byte(msg))
+
 }
 func getMoneyHandler(w http.ResponseWriter, r *http.Request) {
-	currMoney := money.Load()
-	fmt.Println("Возвращаю ваш баланс..")
-	w.Write([]byte("Ваш баланс: " + strconv.FormatInt(currMoney, 10)))
+	mtx.RLock()
+	defer mtx.RUnlock()
+	currMoney := money
+	fmt.Println("Return your balance in wallet")
+	w.Write([]byte("Your balance " + strconv.FormatInt(int64(currMoney), 10)))
 
 }
 
 func getSaveHandler(w http.ResponseWriter, r *http.Request) {
+	mtx.RLock()
+	defer mtx.RUnlock()
 
-	bankBalance := bank.Load()
+	bankBalance := bank
 
-	fmt.Println("Возвращаю ваш баланс в банке..")
-	w.Write([]byte("Ваш баланс в банке: " + strconv.FormatInt(bankBalance, 10)))
+	fmt.Println("Return your balance in bank...")
+	w.Write([]byte("Your balance in bank: " + strconv.FormatInt(int64(bankBalance), 10)))
 
 }
 
@@ -62,7 +85,7 @@ func saveHandler(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 
-		fmt.Println("Произошла ошибка: ", err)
+		fmt.Println("Failed to read request: ", err)
 		return
 	}
 
@@ -72,38 +95,74 @@ func saveHandler(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 
-		fmt.Println("Произошла ошибка: ", err)
+		fmt.Println("Failed to convert request: ", err)
 		return
 	}
+	mtx.Lock()
+	if money >= saveAmount {
 
-	if money.Load() >= int64(saveAmount) {
+		money = money - saveAmount
+		bank -= saveAmount
 
-		money.Add(int64(-saveAmount))
-		bank.Add((int64(saveAmount)))
+		mtx.Unlock()
 
-		fmt.Println("Новое значение переменной money: ", money.Load())
-		fmt.Println("Новое значение переменной bank: ", bank.Load())
-
-	} else {
-
-		fmt.Println("Не хватает денег на балансе")
+		fmt.Println("New value of the money variable: ", money)
+		fmt.Println("New value of the bank variable: ", bank)
 		return
 
 	}
+
+	mtx.Unlock()
+	msg := "There is not enough money on the balance to deposit in the bank!"
+	fmt.Println(msg)
+	w.Write([]byte(msg))
 
 }
 
+func initBalance (input string) {
+
+	input = strings.TrimSpace(input)
+
+	convBalance, err := strconv.ParseInt(input, 10, 64)
+
+	if err != nil {
+		
+		fmt.Println("Failed to convert input: ", err)
+	}	
+	
+	money = int(convBalance)
+	
+}
+
+
 func main() {
-	money.Add(1000)
+
+	reader := bufio.NewReader(os.Stdin)
+
+	fmt.Print("Write your balance: ")
+
+	input, err := reader.ReadString('\n')
+
+	if err != nil {
+
+		fmt.Println("Failed to read: ", err)
+		return
+	}
+	initBalance(input)
+
+	fmt.Println("Your balance: ", money)
+
 	http.HandleFunc("/pay", payHandler)
 	http.HandleFunc("/save", saveHandler)
 	http.HandleFunc("/myMoney", getMoneyHandler)
 	http.HandleFunc("/mySave", getSaveHandler)
 
-	err := http.ListenAndServe(":9091", nil)
+	errHttp := http.ListenAndServe(":9091", nil)
 
-	if err != nil {
-		fmt.Println(err.Error())
+	if errHttp != nil {
+		fmt.Println(errHttp)
 	}
 
+	
+	
 }
