@@ -19,6 +19,11 @@ var mtx sync.RWMutex
 
 func payHandler(w http.ResponseWriter, r *http.Request) {
 
+	if r.Method != http.MethodPatch{
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+		
 	httpRequestBody, err := io.ReadAll(r.Body)
 
 	if err != nil {
