@@ -18,9 +18,12 @@ var bank int = 0
 var mtx sync.RWMutex
 
 func payHandler(w http.ResponseWriter, r *http.Request) {
+
 	httpRequestBody, err := io.ReadAll(r.Body)
 
 	if err != nil {
+		// "http status codes"
+		w.WriteHeader(http.StatusInternalServerError)
 		msg := "Faild to read http request: " + err.Error()
 		fmt.Println(msg)
 		w.Write([]byte(msg))
@@ -32,6 +35,8 @@ func payHandler(w http.ResponseWriter, r *http.Request) {
 	paymentAmount, err := strconv.Atoi(httpRequestBodyString)
 
 	if err != nil {
+
+		w.WriteHeader(http.StatusBadRequest)
 		msg := "Failed to convert request: " + err.Error()
 		fmt.Println(err)
 
@@ -48,7 +53,12 @@ func payHandler(w http.ResponseWriter, r *http.Request) {
 
 		msg := "Pay has been approved!"
 		fmt.Println(msg)
-		w.Write([]byte(msg))
+		_, err := w.Write([]byte(msg))
+
+		if err != nil {
+
+			fmt.Println("Failed to write HTTP response: ", err)
+		}
 		return
 	}
 
@@ -56,9 +66,14 @@ func payHandler(w http.ResponseWriter, r *http.Request) {
 
 	msg := "Not enough funds to pay!!"
 	fmt.Println(msg)
-	w.Write([]byte(msg))
+	_, err = w.Write([]byte(msg))
 
+	if err != nil {
+		fmt.Println("Failed to write HTTP response: ", err)
+	}
 }
+
+
 func getMoneyHandler(w http.ResponseWriter, r *http.Request) {
 	mtx.RLock()
 	defer mtx.RUnlock()
@@ -84,8 +99,11 @@ func saveHandler(w http.ResponseWriter, r *http.Request) {
 	httpRequestBody, err := io.ReadAll(r.Body)
 
 	if err != nil {
-
-		fmt.Println("Failed to read request: ", err)
+		msg := "Failed to read request: " + err.Error()
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(msg))
+		
+		fmt.Println(msg)
 		return
 	}
 
@@ -94,20 +112,33 @@ func saveHandler(w http.ResponseWriter, r *http.Request) {
 	saveAmount, err := strconv.Atoi(httpRequestString)
 
 	if err != nil {
+		msg := "Failed to convert request: " + err.Error()
+		
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Println(msg)
 
-		fmt.Println("Failed to convert request: ", err)
+		w.Write([]byte(msg))
+		
 		return
 	}
+
+
+	
 	mtx.Lock()
 	if money >= saveAmount {
 
 		money = money - saveAmount
-		bank -= saveAmount
+		bank += saveAmount
 
 		mtx.Unlock()
 
 		fmt.Println("New value of the money variable: ", money)
 		fmt.Println("New value of the bank variable: ", bank)
+
+		msg := "Money was saved in the bank"
+		
+		w.Write([]byte(msg))
+		
 		return
 
 	}
@@ -115,25 +146,25 @@ func saveHandler(w http.ResponseWriter, r *http.Request) {
 	mtx.Unlock()
 	msg := "There is not enough money on the balance to deposit in the bank!"
 	fmt.Println(msg)
+	w.WriteHeader(http.StatusPaymentRequired)
 	w.Write([]byte(msg))
 
 }
 
-func initBalance (input string) {
+func initBalance(input string) {
 
 	input = strings.TrimSpace(input)
 
 	convBalance, err := strconv.ParseInt(input, 10, 64)
 
 	if err != nil {
-		
-		fmt.Println("Failed to convert input: ", err)
-	}	
-	
-	money = int(convBalance)
-	
-}
 
+		fmt.Println("Failed to convert input: ", err)
+	}
+
+	money = int(convBalance)
+
+}
 
 func main() {
 
@@ -163,6 +194,4 @@ func main() {
 		fmt.Println(errHttp)
 	}
 
-	
-	
 }
